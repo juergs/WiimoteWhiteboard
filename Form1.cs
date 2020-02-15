@@ -4,8 +4,14 @@
 
     https://stackoverflow.com/questions/8962850/sendinput-fails-on-64bit
 
-
     https://www.chriswirz.com/software/using-windows-api-to-emulate-user-input-in-c-sharp
+
+    VB.NET Version
+    https://www.vb-paradise.de/index.php/Thread/94284-WiimoteActiveboard-Plus-1-3/?postID=787579&s=f59a2e3cdb7790d8302e513e724ef5ebdefa4106#post787579
+    WiiActiveboard%20Plus%201.3(1)/WiimoteActiveboard%20So%20gehts%20(Deutsch).pdf
+
+    https://support.microsoft.com/de-de/help/15290/windows-connect-bluetooth-device
+
 
 */
 using System;
@@ -30,68 +36,47 @@ namespace WiimoteWhiteboard
         //instance of the wii remote
 		Wiimote wm = new Wiimote();
 
+        int calibrationState = 0;
+        float calibrationMargin = .1f;
+        CalibrationForm cf = null;
+
         const int smoothingBufferSize = 50;
         
         PointF[] smoothingBuffer = new PointF[smoothingBufferSize];
         int smoothingBufferIndex = 0;
-        int smoothingAmount = 4;
-        bool enableSmoothing = true;
+        int smoothingAmount     = 4;
+        bool enableSmoothing    = true;
         
-        bool cursorControl = false;  
+        bool cursorControl      = false;  
 
-        int screenWidth = 1024;//defaults, gets replaced by actual screen size
-        int screenHeight = 768;
-
-        int calibrationState = 0;
-        float calibrationMargin = .1f;
-
-        CalibrationForm cf = null;
+        int screenWidth         = 1024;//defaults, gets replaced by actual screen size
+        int screenHeight        = 768;
 
         Warper warper = new Warper();
         float[] srcX = new float[4];
         float[] srcY = new float[4];
         float[] dstX = new float[4];
         float[] dstY = new float[4];
+        
+        //--- consts for key scan codes
+        public const byte VK_TAB                = 0x09;
+        public const byte VK_MENU               = 0x12;     // VK_MENU is Microsoft talk for the ALT key
+        public const byte VK_SPACE              = 0x20;
+        public const byte VK_RETURN             = 0x0D;
+        public const byte VK_LEFT               = 0x25;
+        public const byte VK_UP                 = 0x26;
+        public const byte VK_RIGHT              = 0x27;
+        public const byte VK_DOWN               = 0x28;
 
+        public const int  KEYEVENTF_EXTENDEDKEY = 0x01;
+        public const int  KEYEVENTF_KEYUP       = 0x02;
+        public const uint KEYEVENTF_UNICODE     = 0x0004;
+        public const uint KEYEVENTF_SCANCODE    = 0x0008;
 
-        ////declare consts for mouse messages
-        //public const int INPUT_MOUSE = 0;
-        //public const int INPUT_KEYBOARD = 1;
-        //public const int INPUT_HARDWARE = 2;
-
-        //public const int MOUSEEVENTF_MOVE = 0x01;
-        //public const int MOUSEEVENTF_LEFTDOWN = 0x02;
-        //public const int MOUSEEVENTF_LEFTUP = 0x04;
-        //public const int MOUSEEVENTF_RIGHTDOWN = 0x08;
-        //public const int MOUSEEVENTF_RIGHTUP = 0x10;
-        //public const int MOUSEEVENTF_MIDDLEDOWN = 0x20;
-        //public const int MOUSEEVENTF_MIDDLEUP = 0x40;
-        //public const int MOUSEEVENTF_ABSOLUTE = 0x8000;
-
-        ////for firing mouse and keyboard events
-        //[DllImport("user32.dll", SetLastError = true)]
-        //static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
-
-        //declare consts for key scan codes
-        public const byte VK_TAB = 0x09;
-        public const byte VK_MENU = 0x12; // VK_MENU is Microsoft talk for the ALT key
-        public const byte VK_SPACE = 0x20;
-        public const byte VK_RETURN = 0x0D;
-        public const byte VK_LEFT = 0x25;
-        public const byte VK_UP = 0x26;
-        public const byte VK_RIGHT = 0x27;
-        public const byte VK_DOWN = 0x28;
-        public const int KEYEVENTF_EXTENDEDKEY = 0x01;
-        public const int KEYEVENTF_KEYUP = 0x02;
-
-        const int INPUT_MOUSE = 0;
-        const int INPUT_KEYBOARD = 1;
-        const int INPUT_HARDWARE = 2;
-        //const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
-        //const uint KEYEVENTF_KEYUP = 0x0002;
-        const uint KEYEVENTF_UNICODE = 0x0004;
-        const uint KEYEVENTF_SCANCODE = 0x0008;
-
+        public const int INPUT_MOUSE            = 0;
+        public const int INPUT_KEYBOARD         = 1;
+        public const int INPUT_HARDWARE         = 2;
+        
         struct INPUT
         {
             public int type;
@@ -112,42 +97,36 @@ namespace WiimoteWhiteboard
         [StructLayout(LayoutKind.Sequential)]
         struct MOUSEINPUT
         {
-            public int dx;
-            public int dy;
-            public uint mouseData;
-            public uint dwFlags;
-            public uint time;
-            public IntPtr dwExtraInfo;
+            public int      dx;
+            public int      dy;
+            public uint     mouseData;
+            public uint     dwFlags;
+            public uint     time;
+            public IntPtr   dwExtraInfo;
         }
 
         [StructLayout(LayoutKind.Sequential)]
         struct KEYBDINPUT
-        {
-            /*Virtual Key code.  Must be from 1-254.  If the dwFlags member specifies KEYEVENTF_UNICODE, wVk must be 0.*/
-            public ushort wVk;
-            /*A hardware scan code for the key. If dwFlags specifies KEYEVENTF_UNICODE, wScan specifies a Unicode character which is to be sent to the foreground application.*/
-            public ushort wScan;
-            /*Specifies various aspects of a keystroke.  See the KEYEVENTF_ constants for more information.*/
-            public uint dwFlags;
-            /*The time stamp for the event, in milliseconds. If this parameter is zero, the system will provide its own time stamp.*/
-            public uint time;
-            /*An additional value associated with the keystroke. Use the GetMessageExtraInfo function to obtain this information.*/
-            public IntPtr dwExtraInfo;
+        {            
+            public ushort   wVk;      //--- Virtual Key code.  Must be from 1-254.  If the dwFlags member specifies KEYEVENTF_UNICODE, wVk must be 0.            
+            public ushort   wScan;    //--- A hardware scan code for the key. If dwFlags specifies KEYEVENTF_UNICODE, wScan specifies a Unicode character which is to be sent to the foreground application.            
+            public uint     dwFlags;    //--- Specifies various aspects of a keystroke.  See the KEYEVENTF_ constants for more information.            
+            public uint     time;       //--- The time stamp for the event, in milliseconds. If this parameter is zero, the system will provide its own time stamp.            
+            public IntPtr   dwExtraInfo;  //--- An additional value associated with the keystroke. Use the GetMessageExtraInfo function to obtain this information.
         }
 
         [StructLayout(LayoutKind.Sequential)]
         struct HARDWAREINPUT
         {
-            public uint uMsg;
-            public ushort wParamL;
-            public ushort wParamH;
+            public uint     uMsg;
+            public ushort   wParamL;
+            public ushort   wParamH;
         }
 
         [DllImport("user32.dll")]
         static extern IntPtr GetMessageExtraInfo();
 
-        [DllImport("user32.dll", SetLastError = true)]
-        //static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
+        [DllImport("user32.dll", SetLastError = true)]        
         static extern uint SendInput(uint numInputs, Input[] inputs, int size);
 
         struct MouseInput
@@ -177,69 +156,25 @@ namespace WiimoteWhiteboard
 
         private static bool lastLeftDown;
 
-
-        //[StructLayout(LayoutKind.Sequential)]
-        //public struct MOUSEINPUT
-        //{
-        //    public int dx;//4
-        //    public int dy;//4
-        //    public uint mouseData;//4
-        //    public uint dwFlags;//4
-        //    public uint time;//4
-        //    public IntPtr dwExtraInfo;//4
-        //}
-
-        //[StructLayout(LayoutKind.Sequential)]
-        //public struct KEYBDINPUT
-        //{
-        //    public ushort wVk;//2
-        //    public ushort wScan;//2
-        //    public uint dwFlags;//4
-        //    public uint time;//4
-        //    public IntPtr dwExtraInfo;//4
-        //}
-
-        //[StructLayout(LayoutKind.Sequential)]
-        //public struct HARDWAREINPUT
-        //{
-        //    public uint uMsg;
-        //    public ushort wParamL;
-        //    public ushort wParamH;
-        //}
-
-        //[StructLayout(LayoutKind.Explicit, Size = 28)]
-        //public struct INPUT
-        //{
-        //    [FieldOffset(0)]
-        //    public int type;
-        //    [FieldOffset(4)] //*
-        //    public MOUSEINPUT mi;
-        //    [FieldOffset(4)] //*
-        //    public KEYBDINPUT ki;
-        //    [FieldOffset(4)] //*
-        //    public HARDWAREINPUT hi;
-        //}
-        //imports mouse_event function from user32.dll
-
         [DllImport("user32.dll")]
-        private static extern void mouse_event(
-        long dwFlags, // motion and click options
-        long dx, // horizontal position or change
-        long dy, // vertical position or change
-        long dwData, // wheel movement
-        long dwExtraInfo // application-defined information
-        );
+
+        private static extern void mouse_event
+        (
+            long dwFlags,       //--- motion and click options
+            long dx,            //--- horizontal position or change
+            long dy,            //--- vertical position or change
+            long dwData,        //--- wheel movement
+            long dwExtraInfo    //--- application-defined information
+         );
 
         [DllImport("user32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool SetCursorPos(int X, int Y);
 
-        //imports keybd_event function from user32.dll
+        //--- imports keybd_event function from user32.dll
         [DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.StdCall)]
         public static extern void keybd_event(byte bVk, byte bScan, long dwFlags, long dwExtraInfo);
-        WiimoteState lastWiiState = new WiimoteState();//helps with event firing
-
-        //end keyboard and mouse input emulation variables----------------------------------------
+        WiimoteState lastWiiState = new WiimoteState();//helps with event firing        
 
         Mutex mut = new Mutex();
 
@@ -254,7 +189,7 @@ namespace WiimoteWhiteboard
 
             setSmoothing(smoothingAmount);
 		}
-
+        // ------------------------------------------------------------------------------------------
         private void Form1_Load(object sender, EventArgs e)
 		{
             bool isOk = true; 
@@ -287,6 +222,7 @@ namespace WiimoteWhiteboard
                 loadCalibrationData();
             }                  
 		}
+        
         //-------------------------------------------------------------------------------------------
 		void wm_OnWiimoteExtensionChanged(object sender, WiimoteExtensionChangedEventArgs args)
 		{
@@ -296,6 +232,7 @@ namespace WiimoteWhiteboard
 			else
 				wm.SetReportType(Wiimote.InputReport.IRAccel, true);
 		}
+        
         //-------------------------------------------------------------------------------------------
         float UpdateTrackingUtilization()
         {
@@ -311,6 +248,7 @@ namespace WiimoteWhiteboard
             return util;
 
         }
+        
         //-------------------------------------------------------------------------------------------
         PointF getSmoothedCursor(int amount)
         {
@@ -328,6 +266,7 @@ namespace WiimoteWhiteboard
             smoothed.Y /= count;
             return smoothed;
         }
+        
         //-------------------------------------------------------------------------------------------
         void wm_OnWiimoteChanged(object sender, WiimoteChangedEventArgs args)
 		{            
@@ -456,37 +395,17 @@ namespace WiimoteWhiteboard
                 //--- IR visible
 
                 if (lastWiiState.IRState.Found1)
-                {
-                    
+                {                    
                     //--- mouse up
                     lastWiiState.IRState.Found1 = ws.IRState.Found1;
                     if (cursorControl)
                     {
-                        //INPUT[] buffer = new INPUT[2];
-                        //buffer[0].type = INPUT_MOUSE;
-                        //buffer[0].mi.dx = 0;
-                        //buffer[0].mi.dy = 0;
-                        //buffer[0].mi.mouseData = 0;
-                        //buffer[0].mi.dwFlags = MOUSEEVENTF_LEFTUP;
-                        //buffer[0].mi.time = 0;
-                        //buffer[0].mi.dwExtraInfo = (IntPtr)0;
-
-                        //buffer[1].type = INPUT_MOUSE;
-                        //buffer[1].mi.dx = 0;
-                        //buffer[1].mi.dy = 0;
-                        //buffer[1].mi.mouseData = 0;
-                        //buffer[1].mi.dwFlags = MOUSEEVENTF_MOVE;
-                        //buffer[1].mi.time = 0;
-                        //buffer[1].mi.dwExtraInfo = (IntPtr)0;
-
-                        //SendInput(2, buffer, Marshal.SizeOf(buffer[0]));
-
                         SendMouseInput(0,0, screenWidth, screenHeight, false); 
-
-                     }
+                    }
                 }
             }//--- ir lost
 
+            //--- handle wii-button clicks 
             if (!lastWiiState.ButtonState.A && ws.ButtonState.A)
             {
                 BeginInvoke((MethodInvoker)delegate() { btnCalibrate.PerformClick(); });
@@ -525,33 +444,29 @@ namespace WiimoteWhiteboard
 
 
             lastWiiState.IRState.Found1 = ws.IRState.Found1;
-            lastWiiState.IRState.RawX1 = ws.IRState.RawX1;
-            lastWiiState.IRState.RawY1 = ws.IRState.RawY1;
+            lastWiiState.IRState.RawX1  = ws.IRState.RawX1;
+            lastWiiState.IRState.RawY1  = ws.IRState.RawY1;
             lastWiiState.IRState.Found2 = ws.IRState.Found2;
-            lastWiiState.IRState.RawX2 = ws.IRState.RawX2;
-            lastWiiState.IRState.RawY2 = ws.IRState.RawY2;
+            lastWiiState.IRState.RawX2  = ws.IRState.RawX2;
+            lastWiiState.IRState.RawY2  = ws.IRState.RawY2;
             lastWiiState.IRState.Found3 = ws.IRState.Found3;
-            lastWiiState.IRState.RawX3 = ws.IRState.RawX3;
-            lastWiiState.IRState.RawY3 = ws.IRState.RawY3;
+            lastWiiState.IRState.RawX3  = ws.IRState.RawX3;
+            lastWiiState.IRState.RawY3  = ws.IRState.RawY3;
             lastWiiState.IRState.Found4 = ws.IRState.Found4;
-            lastWiiState.IRState.RawX4 = ws.IRState.RawX4;
-            lastWiiState.IRState.RawY4 = ws.IRState.RawY4;
+            lastWiiState.IRState.RawX4  = ws.IRState.RawX4;
+            lastWiiState.IRState.RawY4  = ws.IRState.RawY4;
 
-            //draw battery value on GUI
+            //--- draw battery value on GUI
             BeginInvoke((MethodInvoker)delegate() { pbBattery.Value = (ws.Battery > 0xc8 ? 0xc8 : (int)ws.Battery); });
             float f = (((100.0f * 48.0f * (float)(ws.Battery / 48.0f))) / 192.0f);
             BeginInvoke((MethodInvoker)delegate() { lblBattery.Text = f.ToString("f0") + "%"; });
 
-            //check the GUI check boxes if the IR dots are visible
+            //--- check the GUI check boxes if the IR dots are visible
             String irstatus = "Visible IR dots: ";
-            if (ws.IRState.Found1)
-                irstatus += "1 ";
-            if (ws.IRState.Found2)
-                irstatus += "2 ";
-            if (ws.IRState.Found3)
-                irstatus += "3 ";
-            if (ws.IRState.Found4)
-                irstatus += "4 ";
+            if (ws.IRState.Found1) irstatus += "1 ";
+            if (ws.IRState.Found2) irstatus += "2 ";
+            if (ws.IRState.Found3) irstatus += "3 ";
+            if (ws.IRState.Found4) irstatus += "4 ";
 
             BeginInvoke((MethodInvoker)delegate() { lblIRvisible.Text = irstatus; });
 
@@ -567,14 +482,14 @@ namespace WiimoteWhiteboard
 
             Input[] i = new Input[2];
 
-            // move the mouse to the position specified
+            //--- move the mouse to the position specified
             i[0] = new Input();
             i[0].Type = InputMouse;
             i[0].MouseInput.X = (positionX * 65535) / maxX;
             i[0].MouseInput.Y = (positionY * 65535) / maxY;
             i[0].MouseInput.Flags = MouseEventAbsolute | MouseEventMove;
 
-            // determine if we need to send a mouse down or mouse up event
+            //--- determine if we need to send a mouse down or mouse up event
             if (!lastLeftDown && leftDown)
             {
                 i[1] = new Input();
@@ -590,8 +505,10 @@ namespace WiimoteWhiteboard
 
             lastLeftDown = leftDown;
 
-            // send it off
+            //---  send it off
             uint result = SendInput(2, i, Marshal.SizeOf(i[0]));
+            
+            //--- something wrong?
             if (result == 0)
                 throw new Win32Exception(Marshal.GetLastWin32Error());
         }
@@ -620,7 +537,7 @@ namespace WiimoteWhiteboard
         //-------------------------------------------------------------------------------------------
         public void loadCalibrationData()
         {
-            // create reader & open file
+            //--- create reader & open file
             try
             {
                 TextReader tr = new StreamReader("calibration.dat");
@@ -631,23 +548,24 @@ namespace WiimoteWhiteboard
                 }
                 smoothingAmount = int.Parse(tr.ReadLine());
 
-                // close the stream
+                //--- close the stream
                 tr.Close();
             }
             catch (Exception x)
             {
-                //no prexsting calibration
+                //--- no prexsting calibration
                 return;
             }
 
-            warper.setDestination(  screenWidth * calibrationMargin,
+            warper.setDestination(  screenWidth  * calibrationMargin,
                                     screenHeight * calibrationMargin,
-                                    screenWidth * (1.0f-calibrationMargin),
+                                    screenWidth  * (1.0f-calibrationMargin),
                                     screenHeight * calibrationMargin,
-                                    screenWidth * calibrationMargin,
+                                    screenWidth  * calibrationMargin,
                                     screenHeight * (1.0f - calibrationMargin),
-                                    screenWidth * (1.0f - calibrationMargin),
+                                    screenWidth  * (1.0f - calibrationMargin),
                                     screenHeight * (1.0f - calibrationMargin));
+
             warper.setSource(srcX[0], srcY[0], srcX[1], srcY[1], srcX[2], srcY[2], srcX[3], srcY[3]);
 
             warper.computeWarp();
@@ -670,9 +588,8 @@ namespace WiimoteWhiteboard
                 tw.WriteLine(srcX[i]);
                 tw.WriteLine(srcY[i]);
             }
-            tw.WriteLine(smoothingAmount);
-            // close the stream
-            tw.Close();
+            tw.WriteLine(smoothingAmount);            
+            tw.Close(); //--- ready
         }
         //-------------------------------------------------------------------------------------------
         public void doCalibration(){
@@ -700,51 +617,44 @@ namespace WiimoteWhiteboard
                     break;
                 case 3:
                     x = (int)(screenWidth * calibrationMargin);
-                    y = screenHeight -(int)(screenHeight * calibrationMargin);
+                    y = screenHeight - (int)(screenHeight * calibrationMargin);
                     cf.showCalibration(x, y, size, p);
                     dstX[calibrationState - 1] = x;
                     dstY[calibrationState - 1] = y;
                     break;
                 case 4:
-                    x = screenWidth - (int)(screenWidth * calibrationMargin);
-                    y = screenHeight -(int)(screenHeight * calibrationMargin);
+                    x = screenWidth  - (int)(screenWidth  * calibrationMargin);
+                    y = screenHeight - (int)(screenHeight * calibrationMargin);
                     cf.showCalibration(x, y, size, p);
                     dstX[calibrationState - 1] = x;
                     dstY[calibrationState - 1] = y;
                     break;
                 case 5:
-                    //compute warp
+                    //--- compute warp
                     warper.setDestination(dstX[0], dstY[0], dstX[1], dstY[1], dstX[2], dstY[2], dstX[3], dstY[3]);
                     warper.setSource(srcX[0], srcY[0], srcX[1], srcY[1], srcX[2], srcY[2], srcX[3], srcY[3]);
                     warper.computeWarp();
+
+                    //--- exit calibration screen, calibration done  
                     if (cf.InvokeRequired)
                     {
-                        BeginInvoke((MethodInvoker)delegate () { cf.Dispose(); });
-                        /*
-                            cf.Invoke(new Action(() =>
-                            {
-                                cf.Close();
-                                cf = null;
-                            }));
-
-                        }
-                        else
-                        { 
-                          cf.Close();
-                          cf = null;
-                        }
-                        */
+                        BeginInvoke((MethodInvoker)delegate () { cf.Dispose(); }); //--- instead of cf.Close(); and cf = null;                         
                     }
+
                     calibrationState = 0;
-                    cursorControl = true;
-                    BeginInvoke((MethodInvoker)delegate() { cbCursorControl.Checked = cursorControl; });
-//                    saveCalibrationData();
+                    cursorControl    = true;
+
+                    BeginInvoke((MethodInvoker) delegate() {cbCursorControl.Checked = cursorControl;} );
+
+                    saveCalibrationData();
+
                     UpdateTrackingUtilization();
+
                     break;
+
                 default:
                     break;
             }
-
         }
         //-------------------------------------------------------------------------------------------
         private void Form1_FormClosed(object sender, FormClosedEventArgs e)
@@ -761,25 +671,23 @@ namespace WiimoteWhiteboard
                 cf = new CalibrationForm();
                 cf.Show();
             }
+
             if (cf.IsDisposed)
             {
                 cf = new CalibrationForm();
                 cf.Show();
             }
+
             cursorControl = false;
             calibrationState = 1;
+
             doCalibration();
         }
         //-------------------------------------------------------------------------------------------
         private void cbCursorControl_CheckedChanged(object sender, EventArgs e)
         {
             cursorControl = cbCursorControl.Checked;
-        }
-        //-------------------------------------------------------------------------------------------
-        private void label1_Click(object sender, EventArgs e)
-        {
-
-        }
+        }        
         //-------------------------------------------------------------------------------------------
         private void setSmoothing(int smoothing)
         {
@@ -791,7 +699,6 @@ namespace WiimoteWhiteboard
         //-------------------------------------------------------------------------------------------
         private void trackBar1_Scroll(object sender, EventArgs e)
         {
-
             smoothingAmount = trackBar1.Value;
             enableSmoothing = (smoothingAmount != 0);
             lblSmoothing.Text = "Smoothing: " + smoothingAmount;
@@ -801,5 +708,10 @@ namespace WiimoteWhiteboard
         {
 
         }
-	}
+        //-------------------------------------------------------------------------------------------
+        private void label1_Click(object sender, EventArgs e)
+        {
+
+        }
+    }
 }
