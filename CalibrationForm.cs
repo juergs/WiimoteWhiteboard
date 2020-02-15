@@ -11,7 +11,6 @@ namespace WiimoteWhiteboard
 {
     public partial class CalibrationForm : Form
     {
-        public delegate void Close_me(); 
         Bitmap bCalibration;
         Graphics gCalibration;
 
@@ -78,13 +77,5 @@ namespace WiimoteWhiteboard
         {
             this.Close();
         }
-        /*
-       public void Close_me()
-       {
-           this.Close();
-           //this = null; 
-       }
-*/
-
     }
 }
